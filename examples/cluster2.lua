@@ -8,7 +8,7 @@ skynet.start(function()
 	local proxy = cluster.proxy("db", sdb)
 	local largekey = string.rep("X", 128*1024)
 	local largevalue = string.rep("R", 100 * 1024)
-	print(skynet.call(proxy, "lua", "SET", largekey, largevalue))
+	skynet.call(proxy, "lua", "SET", largekey, largevalue)
 	local v = skynet.call(proxy, "lua", "GET", largekey)
 	assert(largevalue == v)
 	skynet.send(proxy, "lua", "PING", "proxy")
@@ -20,8 +20,10 @@ skynet.start(function()
 	-- test snax service
 	skynet.timeout(300,function()
 		cluster.reload {
+			db = false,	-- db is down
 			db3 = "127.0.0.1:2529"
 		}
+		print(pcall(cluster.call, "db", sdb, "GET", "a"))	-- db is down
 	end)
 	local pingserver = cluster.snax("db3", "pingserver")
 	print(pingserver.req.ping "hello")
