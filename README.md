@@ -43,5 +43,7 @@ You can also use official Lua versions, just edit the Makefile by yourself.
 
 
 ##依赖库
-https://github.com/google/protobuf.git
+
+https://github.com/snowolder/protobuf.git
+https://github.com/snowolder/curl.git
 
