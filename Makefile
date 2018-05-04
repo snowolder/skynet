@@ -47,7 +47,7 @@ update3rd :
 CSERVICE = snlua logger gate harbor
 LUA_CLIB = skynet \
   client \
-  bson md5 sproto lpeg webclient
+  bson md5 sproto lpeg webclient protobuf
 
 LUA_CLIB_SKYNET = \
   lua-skynet.c lua-seri.c \
@@ -112,6 +112,9 @@ $(LUA_CLIB_PATH)/lpeg.so : 3rd/lpeg/lpcap.c 3rd/lpeg/lpcode.c 3rd/lpeg/lpprint.c
 	
 $(LUA_CLIB_PATH)/webclient.so : lualib-src/webclient.c | $(LUA_CLIB_PATH)
 	$(CC) $(CFLAGS) $(SHARED) -Ilualib-src/webclient $^ -o $@ -lcurl
+
+$(LUA_CLIB_PATH)/protobuf.so : 3rd/pbc/binding/lua53/pbc-lua53.c | $(LUA_CLIB_PATH)
+	cd 3rd/pbc && make clean all && make && cd - && $(CC) $(CFLAGS) $(SHARED) -I3rd/pbc $^ -o $@ -L3rd/pbc/build -lpbc
 	
 clean :
 	rm -f $(SKYNET_BUILD_PATH)/skynet $(CSERVICE_PATH)/*.so $(LUA_CLIB_PATH)/*.so
