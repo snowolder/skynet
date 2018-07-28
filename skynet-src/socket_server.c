@@ -359,6 +359,7 @@ socket_server_create() {
 		s->type = SOCKET_TYPE_INVALID;
 		clear_wb_list(&s->high);
 		clear_wb_list(&s->low);
+		spinlock_init(&s->dw_lock);
 	}
 	ss->alloc_id = 0;
 	ss->event_n = 0;
@@ -429,6 +430,7 @@ socket_server_release(struct socket_server *ss) {
 		if (s->type != SOCKET_TYPE_RESERVE) {
 			force_close(ss, s, &l, &dummy);
 		}
+		spinlock_destroy(&s->dw_lock);
 	}
 	close(ss->sendctrl_fd);
 	close(ss->recvctrl_fd);
@@ -464,7 +466,6 @@ new_fd(struct socket_server *ss, int id, int fd, int protocol, uintptr_t opaque,
 	s->warn_size = 0;
 	check_wb_list(&s->high);
 	check_wb_list(&s->low);
-	spinlock_init(&s->dw_lock);
 	s->dw_buffer = NULL;
 	s->dw_size = 0;
 	return s;
@@ -602,12 +603,26 @@ udp_socket_address(struct socket *s, const uint8_t udp_address[UDP_ADDRESS_SIZE]
 	return 0;
 }
 
+static void
+drop_udp(struct socket_server *ss, struct socket *s, struct wb_list *list, struct write_buffer *tmp) {
+	s->wb_size -= tmp->sz;
+	list->head = tmp->next;
+	if (list->head == NULL)
+		list->tail = NULL;
+	write_buffer_free(ss,tmp);
+}
+
 static int
 send_list_udp(struct socket_server *ss, struct socket *s, struct wb_list *list, struct socket_message *result) {
 	while (list->head) {
 		struct write_buffer * tmp = list->head;
 		union sockaddr_all sa;
 		socklen_t sasz = udp_socket_address(s, tmp->udp_address, &sa);
+		if (sasz == 0) {
+			fprintf(stderr, "socket-server : udp (%d) type mismatch.\n", s->id);
+			drop_udp(ss, s, list, tmp);
+			return -1;
+		}
 		int err = sendto(s->fd, tmp->ptr, tmp->sz, 0, &sa.s, sasz);
 		if (err < 0) {
 			switch(errno) {
@@ -616,16 +631,8 @@ send_list_udp(struct socket_server *ss, struct socket *s, struct wb_list *list, 
 				return -1;
 			}
 			fprintf(stderr, "socket-server : udp (%d) sendto error %s.\n",s->id, strerror(errno));
+			drop_udp(ss, s, list, tmp);
 			return -1;
-/*			// ignore udp sendto error
-			
-			result->opaque = s->opaque;
-			result->id = s->id;
-			result->ud = 0;
-			result->data = NULL;
-
-			return SOCKET_ERR;
-*/
 		}
 
 		s->wb_size -= tmp->sz;
@@ -830,6 +837,12 @@ send_socket(struct socket_server *ss, struct request_send * request, struct sock
 			}
 			union sockaddr_all sa;
 			socklen_t sasz = udp_socket_address(s, udp_address, &sa);
+			if (sasz == 0) {
+				// udp type mismatch, just drop it.
+				fprintf(stderr, "socket-server: udp socket (%d) type mistach.\n", id);
+				so.free_func(request->buffer);
+				return -1;
+			}
 			int n = sendto(s->fd, so.buffer, so.sz, 0, &sa.s, sasz);
 			if (n != so.sz) {
 				append_sendbuffer_udp(ss,s,priority,request,udp_address);
@@ -1449,6 +1462,10 @@ socket_server_poll(struct socket_server *ss, struct socket_message * result, int
 				result->data = (char *)err;
 				return SOCKET_ERR;
 			}
+			if(e->eof) {
+				force_close(ss, s, &l, result);
+				return SOCKET_CLOSE;
+			}
 			break;
 		}
 	}
@@ -1529,6 +1546,12 @@ socket_server_send(struct socket_server *ss, int id, const void * buffer, int sz
 			} else {
 				union sockaddr_all sa;
 				socklen_t sasz = udp_socket_address(s, s->p.udp_address, &sa);
+				if (sasz == 0) {
+					fprintf(stderr, "socket-server : set udp (%d) address first.\n", id);
+					socket_unlock(&l);
+					so.free_func((void *)buffer);
+					return -1;
+				}
 				n = sendto(s->fd, so.buffer, so.sz, 0, &sa.s, sasz);
 			}
 			if (n<0) {
@@ -1796,6 +1819,11 @@ socket_server_udp_send(struct socket_server *ss, int id, const struct socket_udp
 			send_object_init(ss, &so, (void *)buffer, sz);
 			union sockaddr_all sa;
 			socklen_t sasz = udp_socket_address(s, udp_address, &sa);
+			if (sasz == 0) {
+				socket_unlock(&l);
+				so.free_func((void *)buffer);
+				return -1;
+			}
 			int n = sendto(s->fd, so.buffer, so.sz, 0, &sa.s, sasz);
 			if (n >= 0) {
 				// sendto succ
