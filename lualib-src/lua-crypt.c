@@ -363,6 +363,79 @@ des_key(lua_State *L, uint32_t SK[32]) {
 	des_main_ks(SK, key);
 }
 
+/*转换安全URL字符*/
+static int url_safe(lua_State *L)
+{
+	int i;
+	size_t sz = 0;
+	uint8_t * text = (uint8_t *)luaL_checklstring(L, 1, &sz);
+	
+	for(i=0;i<sz;i++)
+	{
+		if(text[i]=='+') //替换'+'
+		{
+			text[i]='-';
+		}
+		
+		if(text[i]=='/') //替换'/'
+			text[i]='_';
+		
+		if(text[i]=='=') //删除字符串后面的'='
+		{
+			text[i]='\0';
+		}	
+	}
+	lua_pushlstring(L, (const char *)text, sz);
+	return 1;
+}
+
+static int url_safe_back(lua_State *L)
+{
+	size_t i,j,num,size;
+	size_t sz = 0;
+
+	uint8_t * text = (uint8_t *)luaL_checklstring(L, 1, &sz);
+	size=strlen((char *)text);
+	for(i=0;i<size;i++)
+	{
+		if(text[i]=='-')
+			text[i]='+';
+		
+		if(text[i]=='_')
+			text[i]='/';
+	}
+	
+	uint8_t tmp[SMALL_CHUNK];
+	uint8_t *buffer = tmp;
+	
+	if(size%4!=0) //补全字符'=' 4的整数倍
+	{
+		num = size/4;
+		num = (num+1)*4;
+	}
+	else
+	{
+		num=size;
+	}
+	
+	if (num+1 > SMALL_CHUNK) {
+		buffer = lua_newuserdata(L, num+1);
+	}
+	
+	strncpy((char *)buffer,(char *)text,size);
+	
+	if(size%4!=0) //补全字符'=' 4的整数倍
+	{
+		for(j=size;j<num;j++)
+			buffer[j]='=';
+		
+		buffer[num]='\0';
+	}
+
+	lua_pushlstring(L, (const char *)buffer, num);
+	return 1;
+}
+
 static int
 ldesencode(lua_State *L) {
 	uint32_t SK[32];
@@ -380,19 +453,25 @@ ldesencode(lua_State *L) {
 	for (i=0;i<(int)textsz-7;i+=8) {
 		des_crypt(SK, text+i, buffer+i);
 	}
+	
+	int num=textsz/8;
+	int len=(num+1)*8;
+	int add=len-textsz;
+
 	int bytes = textsz - i;
 	uint8_t tail[8];
 	int j;
 	for (j=0;j<8;j++) {
 		if (j < bytes) {
 			tail[j] = text[i+j];
-		} else if (j==bytes) {
-			tail[j] = 0x80;
+		//} else if (j==bytes) {
+		//	tail[j] = 0x80;
 		} else {
-			tail[j] = 0;
+			tail[j] = add;
 		}
 	}
 	des_crypt(SK, tail, buffer+i);
+	
 	lua_pushlstring(L, (const char *)buffer, chunksz);
 
 	return 1;
@@ -409,10 +488,11 @@ ldesdecode(lua_State *L) {
 		SK[i + 1] = ESK[31 - i];
 	}
 	size_t textsz = 0;
-	const uint8_t *text = (const uint8_t *)luaL_checklstring(L, 2, &textsz);
+	uint8_t *text = (uint8_t *)luaL_checklstring(L, 2, &textsz);
 	if ((textsz & 7) || textsz == 0) {
 		return luaL_error(L, "Invalid des crypt text length %d", (int)textsz);
 	}
+	
 	uint8_t tmp[SMALL_CHUNK];
 	uint8_t *buffer = tmp;
 	if (textsz > SMALL_CHUNK) {
@@ -422,6 +502,15 @@ ldesdecode(lua_State *L) {
 		des_crypt(SK, text+i, buffer+i);
 	}
 	int padding = 1;
+	
+	i=textsz-1;
+	uint8_t fill=buffer[i];
+	padding=fill;
+	if(fill>=1&&fill<=8&&textsz>fill)
+	{
+		buffer[textsz-fill] = '\0';
+	}
+	/*
 	for (i=textsz-1;i>=textsz-8;i--) {
 		if (buffer[i] == 0) {
 			padding++;
@@ -431,6 +520,7 @@ ldesdecode(lua_State *L) {
 			return luaL_error(L, "Invalid des crypt text");
 		}
 	}
+	*/
 	if (padding > 8) {
 		return luaL_error(L, "Invalid des crypt text");
 	}
@@ -980,6 +1070,8 @@ luaopen_skynet_crypt(lua_State *L) {
 		{ "hmac_sha1", lhmac_sha1 },
 		{ "hmac_hash", lhmac_hash },
 		{ "xor_str", lxor_str },
+		{ "url_safe", url_safe },
+		{ "url_safe_back", url_safe_back },
 		{ NULL, NULL },
 	};
 	luaL_newlib(L,l);
