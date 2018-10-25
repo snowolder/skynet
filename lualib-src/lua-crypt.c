@@ -385,7 +385,7 @@ static int url_safe(lua_State *L)
 			text[i]='\0';
 		}	
 	}
-	lua_pushlstring(L, (const char *)text, sz);
+	lua_pushlstring(L, (const char *)text, strlen((char*)text));
 	return 1;
 }
 
@@ -432,7 +432,7 @@ static int url_safe_back(lua_State *L)
 		buffer[num]='\0';
 	}
 
-	lua_pushlstring(L, (const char *)buffer, num);
+	lua_pushlstring(L, (const char *)buffer, strlen((char*)buffer));
 	return 1;
 }
 
