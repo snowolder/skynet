@@ -4,6 +4,7 @@
 -- @usage local webclient = skynet.newservice("webclient")
 
 local skynet = require "skynet"
+require "skynet.manager"-- import skynet.register
 local webclientlib = require "webclient"
 local webclient = webclientlib.create()
 local requests = nil
@@ -102,4 +103,5 @@ skynet.start(function()
         assert(command == "request")
         request(...)
     end)
+	skynet.register(".webclient")
 end)
