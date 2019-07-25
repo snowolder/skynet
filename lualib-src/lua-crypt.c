@@ -431,6 +431,8 @@ static int url_safe_back(lua_State *L)
 		
 		buffer[num]='\0';
 	}
+	else
+		buffer[size]='\0';
 
 	lua_pushlstring(L, (const char *)buffer, strlen((char*)buffer));
 	return 1;
