@@ -528,4 +528,45 @@ end
 
 M.default=set_default
 
+function M.clear()
+	c._clear(GC)
+	M.GC = nil
+	P = c._env_new()
+	GC = c._gc(P)
+	M.GC = GC
+
+	for k in pairs(decode_type_cache) do
+		decode_type_cache[k] = nil
+	end
+
+	for k in pairs(encode_type_cache) do
+		encode_type_cache[k] = nil
+	end
+
+	for k in pairs(_pattern_cache) do
+		_pattern_cache[k] = nil
+	end
+
+	for k in pairs(default_cache) do
+		default_cache[k] = nil
+	end
+
+	for k in pairs(_encode_type_meta) do
+		if k:sub(1,2) ~= "__" then
+			_encode_type_meta[k] = nil
+		end
+	end
+
+	for k in pairs(_decode_type_meta) do
+		if k:sub(1,2) ~= "__" then
+			_decode_type_meta[k] = nil
+		end
+	end
+end
+
+function M.get_default(typename, key)
+	local tbl = default_table(typename)
+	return tbl.__index({}, key)
+end
+
 return M
