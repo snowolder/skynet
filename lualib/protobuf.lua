@@ -22,11 +22,11 @@ local P,GC
 P = debug.getregistry().PROTOBUF_ENV
 
 if P then
-	GC = c._gc()
-else
-	P= c._env_new()
 	GC = c._gc(P)
-end
+else
+	P = c._env_new()
+	GC = c._gc(P)
+end 
 
 M.GC = GC
 
@@ -215,7 +215,9 @@ local function encode_message(CObj, message_type, t)
 	local type = encode_type_cache[message_type]
 	for k,v in pairs(t) do
 		local func = type[k]
-		func(CObj, k , v)
+		if func ~= "nil" then
+			func(CObj, k , v)
+		end
 	end
 end
 
@@ -305,7 +307,13 @@ local _encode_type_meta = {}
 
 function _encode_type_meta:__index(key)
 	local t, msg = c._env_type(P, self._CType, key)
-	local func = assert(_writer[t],key)(msg)
+	--local func = assert(_writer[t],key)(msg)
+	local func
+	if _writer[t] then
+		func = _writer[t](msg)
+	else
+		func = "nil"
+	end
 	self[key] = func
 	return func
 end
