@@ -156,4 +156,55 @@ databuffer_clear(struct databuffer *db, struct messagepool *mp) {
 	memset(db, 0, sizeof(*db));
 }
 
+
+
+// -----------×Ô¼ºÌí¼Ó--------- databuffer_copy dont move buffer position, only copy buffer
+int databuffer_copy(struct databuffer *db, struct messagepool *mp, void * buffer, int sz) {
+	struct message *current = db->head;
+	int offset = db->offset;
+	for (;;) {
+		int bsz = current->size - offset;
+		if (bsz >= sz) {
+			memcpy(buffer, current->buffer + offset, sz);
+			return 0;
+		}
+		else
+		{
+			memcpy(buffer, current->buffer + offset, bsz);
+			offset = 0;
+			buffer += bsz;
+			sz -= bsz;
+			current = current->next;
+			if (NULL == current)
+				return sz;
+		}
+	}
+	return 0;
+}
+
+void databuffer_delete(struct databuffer *db, struct messagepool *mp, int sz) {
+	struct message *current = db->head;
+	for (;;) {
+		int bsz = current->size - db->offset;
+		if (bsz > sz) 
+		{
+			db->size -= sz;
+			db->offset += sz;
+			return;
+		}
+		else
+		{
+			_return_message(db, mp);
+			db->size -= bsz;
+			sz -= bsz;
+			db->offset = 0;
+			current = db->head;
+			if (NULL == current || sz <= 0)
+				return;			
+		}
+	}
+}
+
+
+
 #endif
