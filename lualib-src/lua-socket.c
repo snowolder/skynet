@@ -766,6 +766,226 @@ linfo(lua_State *L) {
 	return 1;
 }
 
+
+
+
+//-------------------------------------自己添加START-----------------------------------
+static int
+lss_unpack(lua_State *L){
+	int ss_id = luaL_checkinteger(L, 1);
+	struct skynet_socket_message *message = lua_touserdata(L, 2);
+	int size = luaL_checkinteger(L, 3);
+	lua_pushinteger(L, message->type);
+	lua_pushinteger(L, message->id);
+	lua_pushinteger(L, message->ud);
+	if (message->buffer == NULL){
+		lua_pushlstring(L, (char *)(message + 1), size - sizeof(*message));
+	}
+	else {
+		lua_pushlightuserdata(L, message->buffer);
+	}
+	if (message->type == SKYNET_SOCKET_TYPE_UDP)
+	{
+		int addrsz = 0;
+		const char * addrstring = qs_socket_udp_address(ss_id, message, &addrsz);
+		if (addrstring){
+			lua_pushlstring(L, addrstring, addrsz);
+			return 5;
+		}
+	}
+	return 4;
+}
+
+static int
+lss_connect(lua_State *L){
+	int ss_id = luaL_checkinteger(L, 1);
+	size_t sz = 0;
+	const char * addr = luaL_checklstring(L, 2, &sz);
+	char tmp[sz];
+	int port = 0;
+	const char * host = address_port(L, tmp, addr, 3, &port);
+	if (port == 0)
+	{
+		return luaL_error(L, "Invalid port");
+	}
+	struct skynet_context * ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int id = qs_socket_connect(ctx, ss_id, host, port);
+	lua_pushinteger(L, id);
+	return 1;
+}
+
+static int
+lss_close(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	int id = luaL_checkinteger(L, 2);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	qs_socket_close(ctx, ss_id, id);
+	return 0;
+}
+
+static int
+lss_shutdown(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	int id = luaL_checkinteger(L, 2);
+	struct skynet_context * ctx = lua_touserdata(L, lua_upvalueindex(1));
+	qs_socket_shutdown(ctx, ss_id, id);
+	return 0;
+}
+
+
+static int
+lss_listen(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	const char * host = luaL_checkstring(L, 2);
+	int port = luaL_checkinteger(L, 3);
+	int backlog = luaL_optinteger(L, 4, BACKLOG);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int id = qs_socket_listen(ctx, ss_id, host, port, backlog);
+	if (id < 0)
+	{
+		return luaL_error(L, "listen error");
+	}
+	lua_pushinteger(L, id);
+	return 1;
+}
+
+static int
+lss_send(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int id = luaL_checkinteger(L, 2);
+	
+	struct socket_sendbuffer buf;
+	buf.id = id;
+	get_buffer(L, 3, &buf);
+	
+	int err = qs_socket_send(ctx, ss_id, &buf);
+	lua_pushboolean(L, !err);
+	return 1;
+}
+
+static int
+lss_sendlow(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int id = luaL_checkinteger(L, 2);
+	
+	struct socket_sendbuffer buf;
+	buf.id = id;
+	get_buffer(L, 3, &buf);
+	
+	qs_socket_send_lowpriority(ctx, ss_id, &buf);
+	return 0;
+}
+
+static int
+lss_bind(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int fd = luaL_checkinteger(L, 2);
+	int id = qs_socket_bind(ctx, ss_id, fd);
+	lua_pushinteger(L, id);
+	return 1;
+}
+
+static int
+lss_start(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int id = luaL_checkinteger(L, 2);
+	qs_socket_start(ctx, ss_id, id);
+	return 0;
+}
+
+static int
+lss_nodelay(lua_State * L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int id = luaL_checkinteger(L, 2);
+	qs_socket_nodelay(ctx, ss_id, id);
+	return 0;
+}
+
+static int
+lss_udp(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	size_t sz = 0;
+	const char * addr = lua_tolstring(L, 2, &sz);
+	char tmp[sz];
+	int port = 0;
+	const char * host = NULL;
+	if (addr)
+	{
+		host = address_port(L, tmp, addr, 3, &port);
+	}
+	int id = qs_socket_udp(ctx, ss_id, host, port);
+	if (id < 0)
+	{
+		return luaL_error(L, "udp init failed");
+	}
+	lua_pushinteger(L, id);
+	return 1;
+}
+
+static int
+lss_udp_connect(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int id = luaL_checkinteger(L,2);
+	size_t sz = 0;
+	const char * addr = luaL_checklstring(L, 3, &sz);
+	char  tmp[sz];
+	int port = 0;
+	const char *host = NULL;
+	if (addr)
+	{
+		host = address_port(L, tmp, addr, 4, &port);
+	}
+	if (qs_socket_udp_connect(ctx, ss_id, id, host, port))
+	{
+		return luaL_error(L, "udp connect failed");
+	}
+	return 0;
+}
+
+static int
+lss_udp_send(lua_State *L)
+{
+	int ss_id = luaL_checkinteger(L, 1);
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int id = luaL_checkinteger(L, 2);
+	const char * addr = luaL_checkstring(L, 3);
+	
+	struct socket_sendbuffer buf;
+	buf.id = id;
+	get_buffer(L, 4, &buf);
+	
+	int err = qs_socket_udp_send(ctx, ss_id, addr, &buf);
+	lua_pushboolean(L, !err);
+	return 1;
+}
+
+static int
+lss_create(lua_State *L)
+{
+	struct skynet_context *ctx = lua_touserdata(L, lua_upvalueindex(1));
+	int ss_id = new_socket_server(ctx);
+	lua_pushinteger(L, ss_id);
+	return 1;
+}
+//-------------------------------------自己添加END-----------------------------------
+
 LUAMOD_API int
 luaopen_skynet_socketdriver(lua_State *L) {
 	luaL_checkversion(L);
@@ -782,6 +1002,7 @@ luaopen_skynet_socketdriver(lua_State *L) {
 		{ "info", linfo },
 
 		{ "unpack", lunpack },
+		{ "ss_unpack", lss_unpack},
 		{ NULL, NULL },
 	};
 	luaL_newlib(L,l);
@@ -799,6 +1020,21 @@ luaopen_skynet_socketdriver(lua_State *L) {
 		{ "udp_connect", ludp_connect },
 		{ "udp_send", ludp_send },
 		{ "udp_address", ludp_address },
+		
+		{ "ss_connect", lss_connect},
+		{ "ss_close", lss_close},
+		{ "ss_shutdown", lss_shutdown},
+		{ "ss_listen", lss_listen},
+		{ "ss_send", lss_send},
+		{ "ss_lsend", lss_sendlow},
+		{ "ss_bind", lss_bind},
+		{ "ss_start", lss_start},
+		{ "ss_nodelay", lss_nodelay},
+		{ "ss_udp", lss_udp},
+		{ "ss_udp_connect", lss_udp_connect},
+		{ "ss_udp_send", lss_udp_send},
+		{ "ss_create", lss_create},
+		
 		{ NULL, NULL },
 	};
 	lua_getfield(L, LUA_REGISTRYINDEX, "skynet_context");
