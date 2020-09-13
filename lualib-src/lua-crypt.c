@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#define PADDING_MODE_ISO7816_4 0
+#define PADDING_MODE_PKCS7 1
+#define PADDING_MODE_COUNT 2
+
 #define SMALL_CHUNK 256
 
 /* the eight DES S-boxes */
@@ -354,6 +358,97 @@ lrandomkey(lua_State *L) {
 }
 
 static void
+padding_mode_table(lua_State *L) {
+	// see macros PADDING_MODE_ISO7816_4, etc.
+	const char * mode[] = {
+		"iso7816_4",
+		"pkcs7",
+	};
+	int n = sizeof(mode) / sizeof(mode[0]);
+	int i;
+	lua_createtable(L,0,n);
+	for (i=0;i<n;i++) {
+		lua_pushinteger(L, i);
+		lua_setfield(L, -2, mode[i]);
+	}
+}
+
+typedef void (*padding_add)(uint8_t buf[8], int offset);
+typedef int (*padding_remove)(const uint8_t *last);
+
+static void
+padding_add_iso7816_4(uint8_t buf[8], int offset) {
+	buf[offset] = 0x80;
+	memset(buf+offset+1, 0, 7-offset);
+}
+
+static int
+padding_remove_iso7816_4(const uint8_t *last) {
+	int padding = 1;
+	int i;
+	for (i=0;i<8;i++,last--) {
+		if (*last == 0) {
+			padding++;
+		} else if (*last == 0x80) {
+			return padding;
+		} else {
+			break;
+		}
+	}
+	// invalid
+	return 0;
+}
+
+static void
+padding_add_pkcs7(uint8_t buf[8], int offset) {
+	uint8_t x = 8-offset;
+	memset(buf+offset, x, 8-offset);
+}
+
+static int
+padding_remove_pkcs7(const uint8_t *last) {
+	int padding = *last;
+	int i;
+	for (i=1;i<padding;i++) {
+		--last;
+		if (*last != padding)
+			return 0;	// invalid
+	}
+	return padding;
+}
+
+static padding_add padding_add_func[] = {
+	padding_add_iso7816_4,
+	padding_add_pkcs7,
+};
+
+static padding_remove padding_remove_func[] = {
+	padding_remove_iso7816_4,
+	padding_remove_pkcs7,
+};
+
+static inline void
+check_padding_mode(lua_State *L, int mode) {
+	if (mode < 0 || mode >= PADDING_MODE_COUNT)
+		luaL_error(L, "Invalid padding mode %d", mode);
+}
+
+static void
+add_padding(lua_State *L, uint8_t buf[8], const uint8_t *src, int offset, int mode) {
+	check_padding_mode(L, mode);
+	if (offset >= 8)
+		luaL_error(L, "Invalid padding");
+	memcpy(buf, src, offset);
+	padding_add_func[mode](buf, offset);
+}
+
+static int
+remove_padding(lua_State *L, const uint8_t *last, int mode) {
+	check_padding_mode(L, mode);
+	return padding_remove_func[mode](last);
+}
+
+static void
 des_key(lua_State *L, uint32_t SK[32]) {
 	size_t keysz = 0;
 	const void * key = luaL_checklstring(L, 1, &keysz);
@@ -361,81 +456,6 @@ des_key(lua_State *L, uint32_t SK[32]) {
 		luaL_error(L, "Invalid key size %d, need 8 bytes", (int)keysz);
 	}
 	des_main_ks(SK, key);
-}
-
-/*转换安全URL字符*/
-static int url_safe(lua_State *L)
-{
-	int i;
-	size_t sz = 0;
-	uint8_t * text = (uint8_t *)luaL_checklstring(L, 1, &sz);
-	
-	for(i=0;i<sz;i++)
-	{
-		if(text[i]=='+') //替换'+'
-		{
-			text[i]='-';
-		}
-		
-		if(text[i]=='/') //替换'/'
-			text[i]='_';
-		
-		if(text[i]=='=') //删除字符串后面的'='
-		{
-			text[i]='\0';
-		}	
-	}
-	lua_pushlstring(L, (const char *)text, strlen((char*)text));
-	return 1;
-}
-
-static int url_safe_back(lua_State *L)
-{
-	size_t i,j,num,size;
-	size_t sz = 0;
-
-	uint8_t * text = (uint8_t *)luaL_checklstring(L, 1, &sz);
-	size=strlen((char *)text);
-	for(i=0;i<size;i++)
-	{
-		if(text[i]=='-')
-			text[i]='+';
-		
-		if(text[i]=='_')
-			text[i]='/';
-	}
-	
-	uint8_t tmp[SMALL_CHUNK];
-	uint8_t *buffer = tmp;
-	
-	if(size%4!=0) //补全字符'=' 4的整数倍
-	{
-		num = size/4;
-		num = (num+1)*4;
-	}
-	else
-	{
-		num=size;
-	}
-	
-	if (num+1 > SMALL_CHUNK) {
-		buffer = lua_newuserdata(L, num+1);
-	}
-	
-	strncpy((char *)buffer,(char *)text,size);
-	
-	if(size%4!=0) //补全字符'=' 4的整数倍
-	{
-		for(j=size;j<num;j++)
-			buffer[j]='=';
-		
-		buffer[num]='\0';
-	}
-	else
-		buffer[size]='\0';
-
-	lua_pushlstring(L, (const char *)buffer, strlen((char*)buffer));
-	return 1;
 }
 
 static int
@@ -446,6 +466,7 @@ ldesencode(lua_State *L) {
 	size_t textsz = 0;
 	const uint8_t * text = (const uint8_t *)luaL_checklstring(L, 2, &textsz);
 	size_t chunksz = (textsz + 8) & ~7;
+	int padding_mode = luaL_optinteger(L, 3, PADDING_MODE_ISO7816_4);
 	uint8_t tmp[SMALL_CHUNK];
 	uint8_t *buffer = tmp;
 	if (chunksz > SMALL_CHUNK) {
@@ -455,25 +476,9 @@ ldesencode(lua_State *L) {
 	for (i=0;i<(int)textsz-7;i+=8) {
 		des_crypt(SK, text+i, buffer+i);
 	}
-	
-	int num=textsz/8;
-	int len=(num+1)*8;
-	int add=len-textsz;
-
-	int bytes = textsz - i;
 	uint8_t tail[8];
-	int j;
-	for (j=0;j<8;j++) {
-		if (j < bytes) {
-			tail[j] = text[i+j];
-		//} else if (j==bytes) {
-		//	tail[j] = 0x80;
-		} else {
-			tail[j] = add;
-		}
-	}
+	add_padding(L, tail, text+i, textsz - i, padding_mode);
 	des_crypt(SK, tail, buffer+i);
-	
 	lua_pushlstring(L, (const char *)buffer, chunksz);
 
 	return 1;
@@ -490,11 +495,11 @@ ldesdecode(lua_State *L) {
 		SK[i + 1] = ESK[31 - i];
 	}
 	size_t textsz = 0;
-	uint8_t *text = (uint8_t *)luaL_checklstring(L, 2, &textsz);
+	const uint8_t *text = (const uint8_t *)luaL_checklstring(L, 2, &textsz);
 	if ((textsz & 7) || textsz == 0) {
 		return luaL_error(L, "Invalid des crypt text length %d", (int)textsz);
 	}
-	
+	int padding_mode = luaL_optinteger(L, 3, PADDING_MODE_ISO7816_4);
 	uint8_t tmp[SMALL_CHUNK];
 	uint8_t *buffer = tmp;
 	if (textsz > SMALL_CHUNK) {
@@ -503,27 +508,8 @@ ldesdecode(lua_State *L) {
 	for (i=0;i<textsz;i+=8) {
 		des_crypt(SK, text+i, buffer+i);
 	}
-	int padding = 1;
-	
-	i=textsz-1;
-	uint8_t fill=buffer[i];
-	padding=fill;
-	if(fill>=1&&fill<=8&&textsz>fill)
-	{
-		buffer[textsz-fill] = '\0';
-	}
-	/*
-	for (i=textsz-1;i>=textsz-8;i--) {
-		if (buffer[i] == 0) {
-			padding++;
-		} else if (buffer[i] == 0x80) {
-			break;
-		} else {
-			return luaL_error(L, "Invalid des crypt text");
-		}
-	}
-	*/
-	if (padding > 8) {
+	int padding = remove_padding(L, buffer + textsz - 1, padding_mode);
+	if (padding <= 0 || padding > 8) {
 		return luaL_error(L, "Invalid des crypt text");
 	}
 	lua_pushlstring(L, (const char *)buffer, textsz - padding);
@@ -1046,6 +1032,7 @@ lxor_str(lua_State *L) {
 int lsha1(lua_State *L);
 int lhmac_sha1(lua_State *L);
 
+
 LUAMOD_API int
 luaopen_skynet_crypt(lua_State *L) {
 	luaL_checkversion(L);
@@ -1072,11 +1059,14 @@ luaopen_skynet_crypt(lua_State *L) {
 		{ "hmac_sha1", lhmac_sha1 },
 		{ "hmac_hash", lhmac_hash },
 		{ "xor_str", lxor_str },
-		{ "url_safe", url_safe },
-		{ "url_safe_back", url_safe_back },
+		{ "padding", NULL },
 		{ NULL, NULL },
 	};
 	luaL_newlib(L,l);
+
+	padding_mode_table(L);
+	lua_setfield(L, -2, "padding");
+
 	return 1;
 }
 
