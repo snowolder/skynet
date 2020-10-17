@@ -15,7 +15,7 @@ mkdir -p $OutDir/lualib
 #chmod -R 777 *
 
 cd $Dir
-make cleanall
+#make cleanall
 
 #cd $Dir/3rd/lua-cjson
 #make clean
@@ -32,7 +32,7 @@ make linux
 \cp lualib/* $OutDir/lualib/ -fr
 \cp 3rd/lua/luac $OutDir/ -fr
 
-make cleanall
+#make cleanall
 
 
 

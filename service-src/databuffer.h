@@ -158,7 +158,7 @@ databuffer_clear(struct databuffer *db, struct messagepool *mp) {
 
 
 
-// -----------×Ô¼ºÌí¼Ó--------- databuffer_copy dont move buffer position, only copy buffer
+// -----------è‡ªå·±æ·»åŠ --------- databuffer_copy dont move buffer position, only copy buffer
 int databuffer_copy(struct databuffer *db, struct messagepool *mp, void * buffer, int sz) {
 	struct message *current = db->head;
 	int offset = db->offset;

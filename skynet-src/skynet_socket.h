@@ -45,6 +45,20 @@ const char * skynet_socket_udp_address(struct skynet_socket_message *, int *addr
 
 struct socket_info * skynet_socket_info();
 
+int qs_socket_send(struct skynet_context *ctx, int ssid, void *buffer);
+void qs_socket_send_lowpriority(struct skynet_context *ctx, int ssid, void *buffer);
+int qs_socket_listen(struct skynet_context *ctx, int ssid, const char * host, int port, int backlog);
+int qs_socket_connect(struct skynet_context *ctx, int ssid, const char * host, int port);
+int qs_socket_bind(struct skynet_context * ctx, int ssid, int fd);
+void qs_socket_close(struct skynet_context *ctx, int ssid, int id);
+void qs_socket_shutdown(struct skynet_context * ctx, int ssid, int id);
+void qs_socket_start(struct skynet_context * ctx, int ssid, int id);
+void qs_socket_nodelay(struct skynet_context * ctx, int ssid, int id);
+int qs_socket_udp(struct skynet_context *ctx, int ssid, const char * addr, int port);
+int qs_socket_udp_connect(struct skynet_context *ctx, int ssid, int id, const char * addr, int port);
+int qs_socket_udp_send(struct skynet_context * ctx, int ssid, const char * addr, const void * buffer);
+const char * qs_socket_udp_address(int ssid, struct skynet_socket_message *msg, int *addrsz);
+
 // legacy APIs
 
 static inline void sendbuffer_init_(struct socket_sendbuffer *buf, int id, const void *buffer, int sz) {
@@ -75,5 +89,6 @@ static inline int skynet_socket_udp_send(struct skynet_context *ctx, int id, con
 	sendbuffer_init_(&tmp, id, buffer, sz);
 	return skynet_socket_udp_sendbuffer(ctx, address, &tmp);
 }
+
 
 #endif
